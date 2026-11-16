@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>영상 피드백</title>
+<style>
+  :root {
+    --bg: #111214; --panel: #191a1d; --panel2: #212226; --line: #2c2e33;
+    --text: #eceef1; --muted: #9a9ea6; --accent: #ff5a4e; --accent2: #ffb648;
+    --ok: #4fc58b; --blue: #6aa8ff;
+    --font: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 15px; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .app { display: grid; grid-template-columns: 260px 1fr; grid-template-rows: 56px 1fr; height: 100%; }
+  header { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; white-space: nowrap; }
+  header .cur { color: var(--muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .menu-btn { display: none; background: none; border: 0; font-size: 22px; padding: 4px 6px; }
+  .send-btn { background: var(--accent); border: 0; color: #fff; font-weight: 700; padding: 9px 14px; border-radius: 8px; white-space: nowrap; }
+  .send-btn:disabled { background: var(--panel2); color: var(--muted); cursor: default; }
+  .send-btn .n { background: rgba(255,255,255,.25); border-radius: 10px; padding: 0 7px; margin-left: 6px; font-size: 13px; }
+
+  aside { border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 12px 8px; }
+  aside h2 { font-size: 12px; color: var(--muted); font-weight: 600; margin: 4px 10px 10px; }
+  .work { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 8px; padding: 10px 10px; margin-bottom: 2px; }
+  .work:hover { background: var(--panel2); }
+  .work.on { background: #2a2c31; }
+  .work .nm { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .work .sub { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .tag { font-size: 11px; border-radius: 5px; padding: 1px 6px; font-weight: 700; }
+  .tag.new { background: var(--blue); color: #08142a; }
+  .tag.unsent { background: var(--accent2); color: #2a1a00; }
+  .empty-list { color: var(--muted); font-size: 13px; padding: 10px; line-height: 1.6; }
+  .backdrop { display: none; }
+
+  main { overflow-y: auto; padding: 16px 20px 40px; }
+  .versions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; align-items: center; }
+  .versions .lbl { color: var(--muted); font-size: 13px; margin-right: 4px; }
+  .ver { background: var(--panel2); border: 1px solid var(--line); border-radius: 16px; padding: 4px 11px; font-size: 13px; }
+  .ver.on { border-color: var(--text); }
+  .ver .tag { margin-left: 4px; }
+
+  .stage-wrap { display: flex; justify-content: center; background: #000; border-radius: 10px; overflow: hidden; }
+  .stage { position: relative; }
+  .stage video { display: block; width: 100%; height: 100%; background: #000; }
+  .overlay { position: absolute; inset: 0; cursor: crosshair; touch-action: manipulation; }
+  .overlay.playing { cursor: pointer; }
+  .circle { position: absolute; width: 56px; height: 56px; margin: -28px 0 0 -28px; border: 3px solid var(--accent); border-radius: 50%; pointer-events: none; box-shadow: 0 0 0 2px rgba(0,0,0,.45); }
+  .circle.pending { border-color: var(--accent2); border-style: dashed; }
+  .circle b { position: absolute; top: -12px; right: -12px; background: var(--accent); color: #fff; font-size: 12px; min-width: 22px; height: 22px; border-radius: 11px; display: grid; place-items: center; padding: 0 5px; }
+  .circle.pending b { background: var(--accent2); color: #2a1a00; }
+  .big-play { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 64px; height: 64px; border-radius: 50%; background: rgba(0,0,0,.55); display: grid; place-items: center; font-size: 26px; pointer-events: none; }
+  .nothing { color: var(--muted); padding: 80px 20px; text-align: center; line-height: 1.7; }
+
+  .controls { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .ctl { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; width: 40px; height: 36px; flex: none; }
+  .time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .seek { position: relative; flex: 1; height: 28px; cursor: pointer; touch-action: none; }
+  .seek .track { position: absolute; left: 0; right: 0; top: 12px; height: 4px; background: var(--line); border-radius: 2px; }
+  .seek .fill { position: absolute; left: 0; top: 12px; height: 4px; background: var(--text); border-radius: 2px; }
+  .seek .knob { position: absolute; top: 7px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--text); }
+  .seek .mk { position: absolute; top: 4px; width: 4px; height: 8px; margin-left: -2px; border-radius: 2px; background: var(--accent2); }
+  .seek .mk.sent { background: var(--blue); } .seek .mk.done { background: var(--ok); }
+  .vol { width: 80px; accent-color: var(--text); }
+
+  .composer { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .composer input { width: 100%; background: var(--bg); border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 12px; font: inherit; font-size: 16px; outline: none; }
+  .composer input:focus { border-color: var(--muted); }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 8px; line-height: 1.5; }
+  .hint strong { color: var(--accent2); font-weight: 600; }
+  .hint button { background: none; border: 0; color: var(--muted); text-decoration: underline; padding: 0; }
+
+  .notes { margin-top: 18px; }
+  .notes h3 { font-size: 14px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
+  .note { display: grid; grid-template-columns: 30px 1fr auto; gap: 10px; align-items: start; padding: 10px; border-radius: 8px; border: 1px solid transparent; }
+  .note:hover { background: var(--panel); }
+  .note.focus { border-color: var(--line); background: var(--panel); }
+  .note .num { width: 26px; height: 26px; border-radius: 13px; background: var(--accent2); color: #2a1a00; font-weight: 700; display: grid; place-items: center; font-size: 13px; }
+  .note.sent .num { background: var(--blue); color: #08142a; }
+  .note.done .num { background: var(--ok); color: #04210f; }
+  .note .body { min-width: 0; }
+  .note .txt { line-height: 1.5; word-break: break-word; }
+  .note.done .txt { color: var(--muted); }
+  .note .meta { color: var(--muted); font-size: 12px; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .note .tbtn { background: none; border: 0; color: var(--text); padding: 0; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
+  .note .del { background: none; border: 0; color: var(--muted); font-size: 12px; padding: 0; text-decoration: underline; }
+  .note img { width: 88px; border-radius: 5px; display: block; cursor: zoom-in; }
+  .no-notes { color: var(--muted); font-size: 13px; padding: 6px 2px; }
+
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #2d2f35; border: 1px solid var(--line); color: var(--text); padding: 12px 16px; border-radius: 10px; font-size: 14px; display: none; align-items: center; gap: 12px; max-width: calc(100% - 32px); box-shadow: 0 8px 30px rgba(0,0,0,.4); z-index: 50; line-height: 1.5; }
+  .toast.show { display: flex; }
+  .toast button { background: var(--text); color: var(--bg); border: 0; border-radius: 6px; padding: 6px 10px; font-weight: 700; white-space: nowrap; }
+
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 1fr; }
+    .menu-btn { display: block; }
+    header { padding: 0 10px; gap: 8px; }
+    header h1 { display: none; }
+    aside { position: fixed; top: 0; left: 0; bottom: 0; width: 82%; max-width: 300px; z-index: 40; transform: translateX(-100%); transition: transform .2s ease; padding-top: 16px; }
+    .app.drawer aside { transform: none; }
+    .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 30; }
+    .app.drawer .backdrop { display: block; }
+    main { padding: 12px 12px 40px; }
+    .vol { display: none; }
+    .note { grid-template-columns: 30px 1fr; }
+    .note img { grid-column: 2; width: 120px; }
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header>
+    <button class="menu-btn" id="menuBtn" aria-label="작품 목록 열기">☰</button>
+    <h1>영상 피드백</h1>
+    <div class="cur" id="curTitle"></div>
+    <button class="send-btn" id="sendBtn" disabled>클로드에게 보내기<span class="n" id="sendN" hidden></span></button>
+  </header>
+  <aside id="aside">
+    <h2>작품 목록</h2>
+    <div id="works"></div>
+  </aside>
+  <div class="backdrop" id="backdrop"></div>
+  <main id="main">
+    <div class="nothing" id="nothing">왼쪽에서 작품을 골라 주세요.</div>
+    <div id="viewer" hidden>
+      <div class="versions" id="versions"></div>
+      <div class="stage-wrap" id="stageWrap">
+        <div class="stage" id="stage">
+          <video id="video" playsinline preload="auto"></video>
+          <div class="overlay" id="overlay"></div>
+        </div>
+      </div>
+      <div class="controls">
+        <button class="ctl" id="playBtn" aria-label="재생">▶</button>
+        <div class="seek" id="seek"><div class="track"></div><div class="fill" id="fill"></div><div id="marks"></div><div class="knob" id="knob"></div></div>
+        <span class="time" id="time">0:00 / 0:00</span>
+        <button class="ctl" id="muteBtn" aria-label="소리 끄기">🔊</button>
+        <input class="vol" id="vol" type="range" min="0" max="1" step="0.05" value="1" aria-label="소리 크기">
+      </div>
+      <div class="composer">
+        <input id="noteInput" type="text" enterkeyhint="done" autocomplete="off" placeholder="고칠 점을 적고 Enter (치면 영상이 멈춰요)">
+        <div class="hint" id="hint"></div>
+      </div>
+      <div class="notes">
+        <h3 id="notesTitle">주석</h3>
+        <div id="noteList"></div>
+      </div>
+    </div>
+  </main>
+</div>
+<div class="toast" id="toast"><span id="toastMsg"></span><button id="toastBtn" hidden></button></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const video = $("video"), overlay = $("overlay"), input = $("noteInput");
+const S = {
+  works: [], cur: null, version: null, notes: [], pending: null, focusId: null,
+  worksSig: "", notesSig: "", knownVersions: {},
+};
+
+// ---------- 도우미 ----------
+function fmt(t, dec = 1) {
+  if (!isFinite(t)) t = 0;
+  const m = Math.floor(t / 60), s = t - m * 60;
+  return `${m}:${s.toFixed(dec).padStart(dec ? 3 + dec : 2, "0")}`;
+}
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString("ko-KR", { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function mediaUrl(work, file, mtime) { return `/media/${encodeURIComponent(work)}/${encodeURIComponent(file)}${mtime ? "?t=" + mtime : ""}`; }
+function seenGet(w) { try { return parseFloat(localStorage.getItem("seen:" + w) || "0"); } catch { return 0; } }
+function seenSet(w, m) { try { localStorage.setItem("seen:" + w, String(m)); } catch {} }
+let toastTimer;
+function toast(msg, btnLabel, onBtn, ms = 5000) {
+  $("toastMsg").textContent = msg;
+  const b = $("toastBtn");
+  b.hidden = !btnLabel; b.textContent = btnLabel || ""; b.onclick = () => { $("toast").classList.remove("show"); onBtn && onBtn(); };
+  $("toast").classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $("toast").classList.remove("show"), ms);
+}
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : { cache: "no-store" });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j["오류"] || "문제가 생겼어요");
+  return j;
+}
+
+// ---------- 작품 목록 ----------
+async function loadWorks() {
+  const { works } = await api("/api/works");
+  const sig = JSON.stringify(works);
+  if (sig === S.worksSig) return;
+  S.worksSig = sig;
+  // 지금 보는 작품에 새 판이 들어왔는지
+  for (const w of works) {
+    const names = w.versions.map(v => v.name);
+    const known = S.knownVersions[w.name];
+    if (known && w.name === S.cur) {
+      const fresh = names.filter(n => !known.includes(n));
+      if (fresh.length) toast(`새 판이 올라왔어요: ${fresh[0]}`, "새 판 보기", () => openVersion(fresh[0]), 15000);
+    }
+    S.knownVersions[w.name] = names;
+  }
+  S.works = works;
+  renderWorks();
+  if (S.cur) renderVersions();
+  if (!S.cur && works.length && window.innerWidth > 760) openWork(works[0].name);
+  const unsent = works.reduce((a, w) => a + (w.unsent || 0), 0);
+  $("sendBtn").disabled = unsent === 0;
+  $("sendN").hidden = unsent === 0;
+  $("sendN").textContent = unsent;
+}
+function renderWorks() {
+  const box = $("works");
+  if (!S.works.length) {
+    box.innerHTML = `<div class="empty-list">아직 작품이 없어요.<br>서버를 둔 폴더 안에 작품 폴더를 만들고 mp4 영상을 넣어 주세요.</div>`;
+    return;
+  }
+  box.innerHTML = S.works.map(w => {
+    const top = w.versions[0];
+    const isNew = top && top.mtime > seenGet(w.name) && seenGet(w.name) > 0;
+    const sub = top ? `${w.versions.length}개 판 · 최신 ${esc(top.name)}` : "영상 없음";
+    return `<button class="work ${w.name === S.cur ? "on" : ""}" data-w="${esc(w.name)}">
+      <div class="nm">${esc(w.name)}${isNew ? '<span class="tag new">새 판</span>' : ""}${w.unsent ? `<span class="tag unsent">보낼 주석 ${w.unsent}</span>` : ""}</div>
+      <div class="sub">${sub}</div></button>`;
+  }).join("");
+  box.querySelectorAll(".work").forEach(b => b.onclick = () => { openWork(b.dataset.w); $("app").classList.remove("drawer"); });
+}
+function curWork() { return S.works.find(w => w.name === S.cur); }
+
+function openWork(name) {
+  S.cur = name; S.notesSig = ""; S.notes = []; S.focusId = null;
+  const w = curWork();
+  $("curTitle").textContent = name;
+  $("nothing").hidden = !!(w && w.versions.length);
+  $("viewer").hidden = !(w && w.versions.length);
+  if (w && !w.versions.length) $("nothing").textContent = `「${name}」 폴더에 아직 mp4 영상이 없어요.`;
+  renderWorks();
+  if (w && w.versions.length) openVersion(w.versions[0].name);
+  loadNotes();
+}
+function openVersion(name, seekTo) {
+  const w = curWork(); if (!w) return;
+  const v = w.versions.find(x => x.name === name); if (!v) return;
+  const same = S.version === name;
+  S.version = name; S.pending = null;
+  if (!same) {
+    video.src = mediaUrl(w.name, v.name, v.mtime);
+    video.load();
+  }
+  if (seekTo != null) {
+    if (same && video.readyState >= 1) video.currentTime = seekTo;
+    else video.addEventListener("loadedmetadata", () => { video.currentTime = seekTo; }, { once: true });
+  }
+  if (w.versions[0].name === name) seenSet(w.name, v.mtime);
+  renderVersions(); renderWorks(); renderAll();
+}
+function renderVersions() {
+  const w = curWork(); if (!w) return;
+  $("versions").innerHTML = `<span class="lbl">판</span>` + w.versions.map((v, i) =>
+    `<button class="ver ${v.name === S.version ? "on" : ""}" data-v="${esc(v.name)}">${esc(v.name)}${i === 0 ? '<span class="tag new">최신</span>' : ""}</button>`).join("");
+  $("versions").querySelectorAll(".ver").forEach(b => b.onclick = () => openVersion(b.dataset.v));
+}
+
+// ---------- 주석 ----------
+async function loadNotes() {
+  if (!S.cur) return;
+  const work = S.cur;
+  const { notes } = await api("/api/notes?work=" + encodeURIComponent(work));
+  if (work !== S.cur) return;
+  const sig = JSON.stringify(notes);
+  if (sig === S.notesSig) return;
+  S.notesSig = sig; S.notes = notes;
+  renderAll();
+}
+function noteState(n) { return n.done ? "done" : n.sent ? "sent" : "unsent"; }
+function renderNotes() {
+  const list = $("noteList");
+  $("notesTitle").textContent = `주석 ${S.notes.length}개`;
+  if (!S.notes.length) { list.innerHTML = `<div class="no-notes">아직 주석이 없어요. 고칠 장면에서 멈추고 적어 주세요.</div>`; return; }
+  list.innerHTML = S.notes.map(n => {
+    const st = noteState(n);
+    const status = st === "done" ? `완료 · ${esc(n.fixed_in || "")}에서 고침` : st === "sent" ? `보냄 · ${fmtDate(n.sent)}` : "아직 안 보냄";
+    const other = n.version !== S.version ? `<span>${esc(n.version)}</span>` : "";
+    const img = n.image ? `<img data-src="/media/${encodeURIComponent(S.cur)}/feedback_images/${encodeURIComponent(n.image.split("/").pop())}" alt="${n.id}번 주석 화면 사진">` : "";
+    return `<div class="note ${st} ${n.id === S.focusId ? "focus" : ""}" data-id="${n.id}">
+      <div class="num">${n.id}</div>
+      <div class="body"><div class="txt">${esc(n.text)}</div>
+        <div class="meta"><button class="tbtn" data-seek="${n.id}">${fmt(n.time)}</button>${other}${n.pos ? "<span>동그라미</span>" : ""}<span>${status}</span>
+        ${st === "unsent" ? `<button class="del" data-del="${n.id}">지우기</button>` : ""}</div></div>
+      ${img}</div>`;
+  }).join("");
+  list.querySelectorAll("img[data-src]").forEach(i => { i.src = i.dataset.src; i.onclick = () => window.open(i.dataset.src, "_blank"); });
+  list.querySelectorAll("[data-seek]").forEach(b => b.onclick = () => goNote(+b.dataset.seek));
+  list.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    if (!confirm(`${b.dataset.del}번 주석을 지울까요?`)) return;
+    try { await api("/api/delete", { work: S.cur, id: +b.dataset.del }); S.worksSig = ""; await Promise.all([loadNotes(), loadWorks()]); }
+    catch (e) { toast(e.message); }
+  });
+}
+function goNote(id) {
+  const n = S.notes.find(x => x.id === id); if (!n) return;
+  S.focusId = id;
+  video.pause();
+  const w = curWork();
+  if (w.versions.some(v => v.name === n.version)) openVersion(n.version, n.time);
+  else { toast(`${n.version} 판 파일이 없어서 지금 판에서 보여 드려요.`); video.currentTime = n.time; }
+  renderAll();
+}
+function renderMarks() {
+  const d = video.duration;
+  if (!isFinite(d) || !d) { $("marks").innerHTML = ""; return; }
+  $("marks").innerHTML = S.notes.filter(n => n.version === S.version)
+    .map(n => `<div class="mk ${noteState(n)}" style="left:${Math.min(100, n.time / d * 100)}%" title="${n.id}번"></div>`).join("");
+}
+function renderCircles() {
+  const t = video.currentTime;
+  const show = S.notes.filter(n => n.pos && n.version === S.version && video.paused && (Math.abs(n.time - t) < 0.25 || n.id === S.focusId && Math.abs(n.time - t) < 0.5));
+  let html = show.map(n => `<div class="circle" style="left:${n.pos.x * 100}%;top:${n.pos.y * 100}%"><b>${n.id}</b></div>`).join("");
+  if (S.pending) html += `<div class="circle pending" style="left:${S.pending.x * 100}%;top:${S.pending.y * 100}%"><b>${nextId()}</b></div>`;
+  if (!video.paused) html = "";
+  if (video.paused && !S.pending && video.readyState >= 1 && video.currentTime === 0) html += `<div class="big-play">▶</div>`;
+  overlay.innerHTML = html;
+  overlay.classList.toggle("playing", !video.paused);
+}
+function nextId() { return (S.notes.reduce((a, n) => Math.max(a, n.id), 0)) + 1; }
+function renderHint() {
+  const t = fmt(video.currentTime);
+  let h;
+  if (S.pending) h = `<strong>● 동그라미를 찍었어요.</strong> ${t} 장면 · 글을 적고 Enter를 누르면 ${nextId()}번 주석으로 저장돼요. <button id="clearPending">동그라미 지우기</button>`;
+  else if (video.paused) h = `${t}에서 멈춤 · 화면을 누르면 그 자리에 동그라미가 찍혀요.`;
+  else h = `재생 중 · 글자를 치기 시작하면 영상이 멈춰요.`;
+  $("hint").innerHTML = h;
+  const c = $("clearPending"); if (c) c.onclick = () => { S.pending = null; renderAll(); };
+}
+function renderAll() { renderNotes(); renderMarks(); renderCircles(); renderHint(); }
+
+// ---------- 화면 크기 맞추기 ----------
+function fitStage() {
+  const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
+  const W = $("stageWrap").clientWidth;
+  const H = Math.max(200, Math.min(window.innerHeight * (window.innerWidth <= 760 ? 0.5 : 0.62), 900));
+  const k = Math.min(W / vw, H / vh);
+  $("stage").style.width = Math.round(vw * k) + "px";
+  $("stage").style.height = Math.round(vh * k) + "px";
+}
+new ResizeObserver(fitStage).observe($("stageWrap"));
+window.addEventListener("resize", fitStage);
+
+// ---------- 재생 조작 ----------
+function togglePlay() { if (video.paused) { S.pending = null; S.focusId = null; video.play(); } else video.pause(); }
+$("playBtn").onclick = togglePlay;
+video.addEventListener("loadedmetadata", () => { fitStage(); renderAll(); updateTime(); });
+video.addEventListener("play", () => { $("playBtn").textContent = "❚❚"; $("playBtn").setAttribute("aria-label", "멈춤"); S.pending = null; renderCircles(); renderHint(); });
+video.addEventListener("pause", () => { $("playBtn").textContent = "▶"; $("playBtn").setAttribute("aria-label", "재생"); renderCircles(); renderHint(); });
+video.addEventListener("seeked", () => { renderCircles(); renderHint(); });
+video.addEventListener("timeupdate", updateTime);
+video.addEventListener("ended", () => { renderCircles(); renderHint(); });
+function updateTime() {
+  const d = video.duration || 0, t = video.currentTime || 0, p = d ? t / d * 100 : 0;
+  $("fill").style.width = p + "%"; $("knob").style.left = p + "%";
+  $("time").textContent = `${fmt(t)} / ${fmt(d)}`;
+}
+(function seekBar() {
+  const el = $("seek"); let drag = false;
+  const at = e => { const r = el.getBoundingClientRect(); const x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); if (video.duration) { video.currentTime = x * video.duration; S.pending = null; updateTime(); } };
+  el.addEventListener("pointerdown", e => { drag = true; el.setPointerCapture(e.pointerId); at(e); });
+  el.addEventListener("pointermove", e => drag && at(e));
+  el.addEventListener("pointerup", () => { drag = false; renderAll(); });
+})();
+$("muteBtn").onclick = () => { video.muted = !video.muted; };
+$("vol").oninput = e => { video.volume = +e.target.value; video.muted = video.volume === 0; };
+video.addEventListener("volumechange", () => { $("muteBtn").textContent = video.muted || video.volume === 0 ? "🔇" : "🔊"; $("muteBtn").setAttribute("aria-label", video.muted ? "소리 켜기" : "소리 끄기"); });
+
+overlay.addEventListener("click", e => {
+  if (!video.paused) { video.pause(); return; }
+  if (!video.readyState) return;
+  if (video.currentTime === 0 && !S.pending && !input.value) { togglePlay(); return; } // 처음 화면은 누르면 재생
+  const r = overlay.getBoundingClientRect();
+  S.pending = { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, t: video.currentTime };
+  S.focusId = null;
+  renderCircles(); renderHint();
+  if (window.innerWidth > 760) input.focus();
+});
+
+document.addEventListener("keydown", e => {
+  if (e.target === input) {
+    if (e.key === "Escape") { if (S.pending) { S.pending = null; renderAll(); } else input.blur(); }
+    return;
+  }
+  if (e.target.tagName === "INPUT" || $("viewer").hidden) return;
+  if (e.key === " " || e.key === "k") { e.preventDefault(); togglePlay(); }
+  else if (e.key === "ArrowLeft") { video.currentTime = Math.max(0, video.currentTime - 1); }
+  else if (e.key === "ArrowRight") { video.currentTime = Math.min(video.duration || 0, video.currentTime + 1); }
+  else if (e.key === "Escape" && S.pending) { S.pending = null; renderAll(); }
+});
+
+// ---------- 주석 적기 ----------
+input.addEventListener("input", () => { if (!video.paused) video.pause(); });
+input.addEventListener("keydown", e => {
+  if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return; // 한글 조합 중 Enter는 무시
+  e.preventDefault();
+  saveNote();
+});
+let saving = false;
+async function saveNote() {
+  const text = input.value.trim();
+  if (!text || saving || !S.cur || !S.version) return;
+  saving = true;
+  video.pause();
+  const time = S.pending ? S.pending.t : video.currentTime;
+  const pos = S.pending ? { x: S.pending.x, y: S.pending.y } : null;
+  let image = null;
+  try { if (pos) image = snapshot(pos, nextId()); }
+  catch (e) { console.warn(e); }
+  try {
+    const { id } = await api("/api/notes", { work: S.cur, version: S.version, time, pos, text, image });
+    input.value = ""; S.pending = null; S.focusId = id;
+    S.worksSig = "";
+    await Promise.all([loadNotes(), loadWorks()]);
+    toast(`${id}번 주석을 저장했어요.`, null, null, 2500);
+  } catch (e) { toast("저장하지 못했어요: " + e.message); }
+  saving = false;
+}
+function snapshot(pos, num) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const k = Math.min(1, 1920 / Math.max(vw, vh));
+  const c = document.createElement("canvas");
+  c.width = Math.round(vw * k); c.height = Math.round(vh * k);
+  const g = c.getContext("2d");
+  g.drawImage(video, 0, 0, c.width, c.height);
+  const x = pos.x * c.width, y = pos.y * c.height;
+  const R = Math.max(18, Math.min(c.width, c.height) * 0.06), lw = Math.max(3, R * 0.12);
+  g.lineWidth = lw + 4; g.strokeStyle = "rgba(0,0,0,.55)";
+  g.beginPath(); g.arc(x, y, R, 0, Math.PI * 2); g.stroke();
+  g.lineWidth = lw; g.strokeStyle = "#ff3b30";
+  g.beginPath(); g.arc(x, y, R, 0, Math.PI * 2); g.stroke();
+  const fs = Math.round(R * 0.7);
+  g.font = `bold ${fs}px sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
+  const bx = x + R * 0.8, by = y - R * 0.8;
+  g.fillStyle = "#ff3b30"; g.beginPath(); g.arc(bx, by, fs * 0.75, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#fff"; g.fillText(String(num), bx, by + 1);
+  return c.toDataURL("image/jpeg", 0.88);
+}
+
+// ---------- 보내기 ----------
+$("sendBtn").onclick = async () => {
+  $("sendBtn").disabled = true;
+  try {
+    const { sent } = await api("/api/send", {});
+    const n = sent.reduce((a, s) => a + s.ids.length, 0);
+    S.worksSig = ""; S.notesSig = "";
+    await Promise.all([loadNotes(), loadWorks()]);
+    toast(n ? `주석 ${n}개를 보냈어요. 클로드에게 「피드백 확인」이라고 말해 주세요.` : "보낼 주석이 없어요.", null, null, 8000);
+  } catch (e) { toast("보내지 못했어요: " + e.message); $("sendBtn").disabled = false; }
+};
+
+// ---------- 서랍 ----------
+$("menuBtn").onclick = () => $("app").classList.toggle("drawer");
+$("backdrop").onclick = () => $("app").classList.remove("drawer");
+
+// ---------- 시작 & 새로고침 ----------
+async function tick() {
+  try { await loadWorks(); await loadNotes(); }
+  catch (e) { toast("서버에 연결할 수 없어요. 서버가 켜져 있는지 확인해 주세요.", null, null, 4000); }
+}
+tick().then(() => { if (!S.cur && window.innerWidth <= 760) $("app").classList.add("drawer"); });
+setInterval(tick, 3000);
+renderHint();
+</script>
+</body>
+</html>
